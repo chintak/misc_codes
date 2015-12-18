@@ -13,6 +13,23 @@ from time import gmtime, strftime
 from math import cos, sin
 
 
+def files_list(folder, mode):
+    """
+    Return a list of tuples (filename, label). label = -1 if mode = 'test' 
+    mode = 'val', 'test', 'train'
+    """
+    names = []
+    for r, ds, fs in os.walk(folder):
+        for f in fs:
+            if '.jpeg' not in f:
+                continue
+            if "test" in mode:
+                names.append((os.path.join(r, f), -1))
+                continue
+            label = int(r.strip('/').split('/')[-1])
+            names.append((os.path.join(r, f), label))
+    return names
+    
 def get_time():
     return strftime("%a, %d %b %Y %H:%M:%S", gmtime())
 
@@ -35,8 +52,11 @@ def rand_draw():
     vflip = np.random.randint(2) == 0
     return (r, alpha, beta, hflip, vflip)
 
-def distort(center, param):
+def distort(center, param, mode):
     r, alpha, beta, hflip, vflip = param
+    if mode is "test":
+        r = 0.
+        beta = alpha
     c00 = (1+r) * cos(alpha)
     c01 = (1+r) * sin(alpha)
     if hflip:
@@ -52,7 +72,7 @@ def distort(center, param):
     M = np.array([[c00, c01, c02], [c10, c11, c12]], dtype=np.float32)
     return M
 
-def get_distorted_img(im):
+def get_distorted_img(im, mode):
     if "float" not in im.dtype.name:
         from skimage import img_as_ubyte
         im = img_as_ubyte(im)
@@ -61,31 +81,29 @@ def get_distorted_img(im):
         out = np.zeros_like(im)
         param = rand_draw()
         for i in range(c):
-            out[:, :, i] = cv2.warpAffine(im[:, :, i], distort((w/2, h/2), param), im[:,:,0].T.shape, borderValue=128)
+            out[:, :, i] = cv2.warpAffine(im[:, :, i], distort((w/2, h/2), param, mode), im[:,:,0].T.shape, borderValue=128)
     elif im.ndim == 2:
         h, w = im.shape
         out = np.zeros_like(im)
         param = rand_draw()
         for i in range(c):
-            out = cv2.warpAffine(im, distort((w/2, h/2), param), im[:,:,0].shape, borderValue=128)
+            out = cv2.warpAffine(im, distort((w/2, h/2), param, mode), im[:,:,0].shape, borderValue=128)
 
     return out
 
 def scaleRadius(img, scale):
-    print "%s [%s] %s: Input image size (%d, %d, %d)" % (get_time(), os.getpid(), "LOG", img.shape[0], img.shape[1], img.shape[2])
     assert img.shape[0] > 0 and img.shape[1] > 0, "Error: scaleRadius: Shape of input img: (%d, %d)" % (img.shape[0], img.shape[1])
     x=img[img.shape[0]/2,:,:].sum(1)
     r=(x>x.mean()/10).sum()/2
     if r <= 0:
+        print "%s [%s] %s: Non-positive r = %f detected - unable to determine scale." % (get_time(), os.getpid(), "WARN", r)
         return None
     s=scale*1.0/r
-    print "%s [%s] %s: r = %f and s = %f, scale = %d" % (get_time(), os.getpid(), "LOG", r, s, scale)
-#     assert s <= 1., "%s [%s] Error: scaleRadius: s = %f" % (get_time(), os.getpid(), s)
     try:
         return cv2.resize(img,(0,0),fx=s,fy=s)
     except e:
         print e
-        exit(0)
+        return None
 
 def pad_img(im, shape, value=0):
     out = np.ones(shape, dtype=im.dtype) * value
