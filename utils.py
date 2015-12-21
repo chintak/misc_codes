@@ -11,7 +11,77 @@ import itertools
 import urllib
 from time import gmtime, strftime
 from math import cos, sin
+from subprocess import check_output, STDOUT
+from json import loads
 
+
+def unsharp_img(a, scale):
+    b = np.zeros(a.shape)
+    cv2.circle(b,(a.shape[1]//2,a.shape[0]//2),int(scale*0.9),(1,1,1),-1,8,0)
+    aa = cv2.addWeighted(a,4,cv2.GaussianBlur(a,(0,0),scale/30),-4,128)*b+128*(1-b)
+    aa = aa.astype(np.uint8)
+    return aa
+
+def process_one(img, crop_shape, scale):
+    a = scaleRadius(img, scale)
+    ua = unsharp_img(a, scale)
+    ca = random_crops(ua, shape=crop_shape)
+    return ca
+
+def get_curl_pred(fname, thresh_pb1=0.7):
+    res01 = check_output(
+        "curl localhost:5000/models/images/classification/classify_one.json -XPOST -F job_id=20151217-070518-faa7 -F image_file=@%s" % (fname), shell=True)
+    probs01 = dict(loads(res01)['predictions'])
+    res14 = check_output(
+        "curl localhost:5000/models/images/classification/classify_one.json -XPOST -F job_id=20151218-081502-a392 -F image_file=@%s" % (fname), shell=True)
+    probs14 = dict(loads(res14)['predictions'])
+    for k in probs01.iterkeys():
+        probs01[k] = round(probs01[k] / 100., 3)
+    for k in probs14.iterkeys():
+        probs14[k] = round(probs14[k] / 100., 3)
+    if probs01['0'] > probs01['1'] or probs01['1'] < thresh_pb1:
+        # Best pred level 0
+        res = {}
+        best_class = 0
+        res["level0"] = probs01['0']
+        for i in range(1, 4):
+            res["level%d" % i] = round(probs01['1'] * probs14['%d' % i], 3)
+    else:
+        # Best pred level 1, 2, 3 or 4
+        res = {}
+        best_class = -1
+        max_prob = -1.
+        res["level0"] = 0.0
+        for i in range(1, 4):
+            prb = probs14['%d' % i]
+            if prb > max_prob:
+                max_prob = prb
+                best_class = i
+            res["level%d" % i] = prb
+    return res, best_class
+
+def get_label_prob(probs01, probs14, thresh_pb1=0.7):
+    probs = []
+    labels = []
+    num_imgs = probs01.shape[0]
+    for i in range(num_imgs):
+        cl01 = probs01[i, :].argmax()
+        if cl01 == 1:
+            pb1 = probs01[i, 1] > thresh_pb1
+            if pb1:
+                cl = probs14[i, :].argmax()
+                labels.append(cl + 1)
+                pdict = {}
+                for j in range(probs14.shape[1]):
+                    pdict["level_%d" % (j + 1)] = round(probs14[i, j], 4)
+                probs.append(pdict)
+            else:
+                labels.append(0)
+                probs.append({"level_0": round(probs01[i, 0], 4)})
+        else:
+            labels.append(0)
+            probs.append({"level_0": round(probs01[i, 0], 4)})
+    return probs, labels        
 
 def files_list(folder, mode):
     """
@@ -131,7 +201,7 @@ def random_crops(im, shape=(256, 256)):
     x = max(x, (wo//2))
     rows, cols = np.ogrid[-ho//2:ho//2,-wo//2:wo//2]
     # Return appropriate size
-    return im[rows + y, cols + x]
+    return im[rows + h//2, cols + w//2]
 
 def bbox(im):
     th = 2

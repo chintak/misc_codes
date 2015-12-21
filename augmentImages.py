@@ -3,9 +3,10 @@
 import cv2, glob, numpy as np
 from joblib import Parallel, delayed
 from utils import bbox, scaleRadius, random_crops, get_time
-from utils import get_distorted_img, files_list
+from utils import get_distorted_img, files_list, unsharp_img
 import sys
 import os
+import caffe
 
 root_folder = '/home/ubuntu/dataset/'
 in_folder_train = 'train/'
@@ -14,19 +15,12 @@ in_folder_test = 'test/test/'
 pb = [0.005, 0.80, 0.35, 1., 1.]
 
 
-def unsharp_img(a, scale):
-    b = np.zeros(a.shape)
-    cv2.circle(b,(a.shape[1]//2,a.shape[0]//2),int(scale*0.9),(1,1,1),-1,8,0)
-    aa = cv2.addWeighted(a,4,cv2.GaussianBlur(a,(0,0),scale/30),-4,128)*b+128*(1-b)
-    aa = aa.astype(np.uint8)
-    return aa
-
 def process_img(fname_label, crop_shape, scale, random_draws, mode, logging=True):
     imgs = []
     name, label = fname_label
     if logging:
         print "%s [%d] Processing file %s" % (get_time(), os.getpid(), name)
-    a = cv2.imread(name)
+    a = (caffe.io.load_image(name) * 255).astype(np.uint8)
     a = scaleRadius(a,scale)
     if a is None:
         print "%s [%d] Unable to retrieve scaleRadius() img for file %s" % (get_time(), os.getpid(), name)
@@ -69,7 +63,8 @@ def write_imgs(imgs, name, crop_shape, mode):
             cv2.imwrite(new_name, im)
             continue
         out_name = new_name.replace(".jpeg", "_%d.jpeg" % (i))
-        cv2.imwrite(out_name, im)
+        out_im = cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
+        cv2.imwrite(out_name, out_im)
 
 def main_proc(fname_label, crop_shape, scale, random_draws, mode="train"):
     ferr = open("out_%d.log" % os.getpid(), 'a')
