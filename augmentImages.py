@@ -1,6 +1,8 @@
-#Preprocess training images.
-#Scale 300 seems to be sufficient; 500 and 1000 are overkill
-import cv2, glob, numpy as np
+# Preprocess training images.
+# Scale 300 seems to be sufficient; 500 and 1000 are overkill
+import cv2
+import glob
+import numpy as np
 from joblib import Parallel, delayed
 from utils import bbox, scaleRadius, random_crops, get_time
 from utils import get_distorted_img, files_list, unsharp_img
@@ -21,31 +23,36 @@ def process_img(fname_label, crop_shape, scale, random_draws, mode, logging=True
     if logging:
         print "%s [%d] Processing file %s" % (get_time(), os.getpid(), name)
     a = (caffe.io.load_image(name) * 255).astype(np.uint8)
-    a = scaleRadius(a,scale)
     if a is None:
         print "%s [%d] Unable to retrieve scaleRadius() img for file %s" % (get_time(), os.getpid(), name)
-        for i in range(random_draws + 1):
-            imgs.append(np.zeros((crop_shape[0], crop_shape[1], 3), dtype=np.uint8))
+        imgs.append(
+            np.zeros((crop_shape[0], crop_shape[1], 3), dtype=np.uint8))
+        if mode is "val":
+            return imgs
+        for i in range(random_draws):
+            imgs.append(
+                np.zeros((crop_shape[0], crop_shape[1], 3), dtype=np.uint8))
         return imgs
 
     ua = unsharp_img(a, scale)
     ca = random_crops(ua, shape=crop_shape)
     imgs.append(ca)
-    
+
     # Don't augment validation set
     if 'val' in mode:
         return imgs
-    
+
     # Check if augmentation is needed
     if mode is "train" and np.random.uniform(0, 1) > pb[label]:
         return imgs
-    
+
     for i in range(random_draws):
         dist_img = get_distorted_img(ua, mode)
         out_im = random_crops(dist_img, shape=crop_shape)
         imgs.append(out_im)
 
     return imgs
+
 
 def write_imgs(imgs, name, crop_shape, mode):
     if imgs is None:
@@ -66,6 +73,7 @@ def write_imgs(imgs, name, crop_shape, mode):
         out_im = cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
         cv2.imwrite(out_name, out_im)
 
+
 def main_proc(fname_label, crop_shape, scale, random_draws, mode="train"):
     ferr = open("out_%d.log" % os.getpid(), 'a')
     sys.stdout = ferr
@@ -73,6 +81,7 @@ def main_proc(fname_label, crop_shape, scale, random_draws, mode="train"):
     imgs = process_img(fname_label, crop_shape, scale, random_draws, mode)
     write_imgs(imgs, fname_label[0], crop_shape, mode)
     ferr.close()
+
 
 def main(scale, crop_shape, random_draws, mode):
     in_fold = root_folder + in_folder_train
@@ -85,17 +94,17 @@ def main(scale, crop_shape, random_draws, mode):
     print "Run mode: %s" % mode.upper()
     names = files_list(in_fold, mode)
     print "Total number of files: %d" % len(names)
-    
+
     # Create a parallel pool
     errf = open('err.log', 'w')
     sys.stderr = errf
     with Parallel(n_jobs=8) as parallel:
-        rets = parallel(delayed(main_proc)(fname_label, crop_shape, scale, random_draws, mode) 
+        rets = parallel(delayed(main_proc)(fname_label, crop_shape, scale, random_draws, mode)
                         for fname_label in names)
         print "Done. A total of %d files processed." % len(rets)
     errf.close()
 
-    
+
 if __name__ == '__main__':
     scale = 180
     crop_shape = (256, 256)
