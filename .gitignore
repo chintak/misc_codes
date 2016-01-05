@@ -1,4 +1,5 @@
 SparseConvNet/*
+.ycm_extra_conf.py
 misc/*
 *.csv
 .ipynb_checkpoints/*

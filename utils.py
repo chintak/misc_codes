@@ -9,11 +9,15 @@ import math
 import sys
 import itertools
 import urllib
+import caffe
 from time import gmtime, strftime
 from math import cos, sin
 from subprocess import check_output, STDOUT
 from json import loads
 
+
+def image_load(filename):
+    return (caffe.io.load_image(filename) * 255.).astype(np.uint8)
 
 def unsharp_img(a, scale):
     b = np.zeros(a.shape)
@@ -82,6 +86,19 @@ def get_label_prob(probs01, probs14, thresh_pb1=0.7):
             labels.append(0)
             probs.append({"level_0": round(probs01[i, 0], 4)})
     return probs, labels        
+
+def parse_folder(folder, ext='jpeg'):
+    """
+    Return a list of tuples (filename, label). label = -1 if mode = 'test' 
+    mode = 'val', 'test', 'train'
+    """
+    names = []
+    for r, ds, fs in os.walk(folder):
+        for f in fs:
+            if ".%s" % ext not in f:
+                continue
+            names.append(os.path.join(r, f))
+    return names
 
 def files_list(folder, mode):
     """
