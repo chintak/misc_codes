@@ -16,8 +16,24 @@ from subprocess import check_output, STDOUT
 from json import loads
 
 
+def extract_filename_in_path(path):
+    return path.split('/')[-1].split('.')[0]
+
+def make_folder_tree(name, is_file=True):
+    folder = name if not is_file else os.path.dirname(name)
+    if not os.path.isdir(folder):
+        os.makedirs(folder)
+
 def image_load(filename):
     return (caffe.io.load_image(filename) * 255.).astype(np.uint8)
+
+def subsample_inner_circle_img(a, scale):
+    b = np.zeros(a.shape)
+    cv2.circle(b, (a.shape[1] // 2, a.shape[0] // 2),
+               int(scale * 0.9), (1, 1, 1), -1, 8, 0)
+    aa = a * b
+    aa = aa.astype(np.uint8)
+    return aa
 
 def unsharp_img(a, scale):
     b = np.zeros(a.shape)
@@ -255,7 +271,6 @@ def bbox(im):
     th = 2
     if im is None:
         return None
-    print "%s [%d] LOG: bbox: Shape (%d, %d, %d)" % (get_time(), os.getpid(), im.shape[0], im.shape[1], im.shape[2])
     a = np.mean(im, axis=2, dtype=np.float).mean(axis=0)
     b = np.mean(im, axis=2, dtype=np.float).mean(axis=1)
     aidx = np.where(a > th)[0]
