@@ -16,24 +16,28 @@ from subprocess import check_output, STDOUT
 from json import loads
 
 
+def subsample_inner_circle_img(a, scale, value=0):
+    b = np.zeros(a.shape) + value
+    cv2.circle(b, (a.shape[1] // 2, a.shape[0] // 2),
+               int(scale * 0.9), (1, 1, 1), -1, 8, 0)
+    aa = a * b
+    aa = aa.astype(np.uint8)
+    return aa
+
+
 def extract_filename_in_path(path):
     return path.split('/')[-1].split('.')[0]
+
 
 def make_folder_tree(name, is_file=True):
     folder = name if not is_file else os.path.dirname(name)
     if not os.path.isdir(folder):
         os.makedirs(folder)
 
+
 def image_load(filename):
     return (caffe.io.load_image(filename) * 255.).astype(np.uint8)
 
-def subsample_inner_circle_img(a, scale):
-    b = np.zeros(a.shape)
-    cv2.circle(b, (a.shape[1] // 2, a.shape[0] // 2),
-               int(scale * 0.9), (1, 1, 1), -1, 8, 0)
-    aa = a * b
-    aa = aa.astype(np.uint8)
-    return aa
 
 def unsharp_img(a, scale):
     b = np.zeros(a.shape)
@@ -169,19 +173,19 @@ def url_imread(url):
 
 
 def rand_draw():
-    r = np.random.uniform(-0.1, 0.1)
-    alpha = np.random.uniform(-np.pi / 4, np.pi / 4)
-    beta = np.random.uniform(-0.2, 0.2) + alpha
+    r = np.random.uniform(-0.15, 0)
+    alpha = np.random.uniform(-3 * np.pi / 180, 3 * np.pi / 180)
+    beta = np.random.uniform(-0.1, 0.1) + alpha
     hflip = np.random.randint(2) == 0
     vflip = np.random.randint(2) == 0
     return (r, alpha, beta, hflip, vflip)
 
 
-def distort(center, param, mode):
+def distort(center, param, no_rotation=False):
     r, alpha, beta, hflip, vflip = param
-    if mode is "test":
-        r = 0.
-        beta = alpha
+    if no_rotation:
+        alpha = 0.
+        beta = 0.
     c00 = (1 + r) * cos(alpha)
     c01 = (1 + r) * sin(alpha)
     if hflip:
@@ -198,7 +202,7 @@ def distort(center, param, mode):
     return M
 
 
-def get_distorted_img(im, mode):
+def get_distorted_img(im, border_value=128, no_rotation=False):
     if "float" not in im.dtype.name:
         from skimage import img_as_ubyte
         im = img_as_ubyte(im)
@@ -207,33 +211,38 @@ def get_distorted_img(im, mode):
         out = np.zeros_like(im)
         param = rand_draw()
         for i in range(c):
-            out[:, :, i] = cv2.warpAffine(im[:, :, i], distort(
-                (w / 2, h / 2), param, mode), im[:, :, 0].T.shape, borderValue=128)
+            out[:, :, i] = cv2.warpAffine(im[:, :, i], 
+                                          distort((w / 2, h / 2), param, no_rotation), 
+                                          im[:, :, 0].T.shape, border_value)
     elif im.ndim == 2:
         h, w = im.shape
         out = np.zeros_like(im)
         param = rand_draw()
         for i in range(c):
-            out = cv2.warpAffine(im, distort(
-                (w / 2, h / 2), param, mode), im[:, :, 0].shape, borderValue=128)
+            out = cv2.warpAffine(im, 
+                                 distort((w / 2, h / 2), param, no_rotation), 
+                                 im[:, :, 0].shape, border_value)
 
     return out
 
 
-def scaleRadius(img, scale):
-    assert img.shape[0] > 0 and img.shape[
-        1] > 0, "Error: scaleRadius: Shape of input img: (%d, %d)" % (img.shape[0], img.shape[1])
-    x = img[img.shape[0] / 2, :, :].sum(1)
-    r = (x > x.mean() / 10).sum() / 2
-    if r <= 0:
-        print "%s [%s] %s: Non-positive r = %f detected - unable to determine scale." % (get_time(), os.getpid(), "WARN", r)
-        return None
+def scale_radius(img, scale):
+    h, w, _ = img.shape
+    assert h > 0 and w > 0, ("Error: scale_radius: Shape of input img:"
+                             " (%d, %d)" % (h, w))
+    x = img[h // 2, :, :].sum(1)
+    r = 0
+    for i in range(10, 20, 2):
+        r = (x > x.mean() / i).sum() / 2
+        if r > 0:
+            break
     s = scale * 1.0 / r
-    try:
-        return cv2.resize(img, (0, 0), fx=s, fy=s)
-    except e:
-        print e
-        return None
+    if r <= 0:
+        print("%s [%s] %s: Non-positive r = %f detected -"
+              " unable to determine scale." % (get_time(),
+                                               os.getpid(), "WARN", r))
+        s = scale / w
+    return cv2.resize(img, (0, 0), fx=s, fy=s)
 
 
 def pad_img(im, shape, value=0):
